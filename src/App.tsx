@@ -4,21 +4,40 @@ import { BattlePage } from "@/pages/BattlePage";
 import { UpgradePage } from "@/pages/UpgradePage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { ConfigPage } from "@/pages/ConfigPage";
+import { ArchaeologyPage } from "@/pages/ArchaeologyPage";
+import { useWreckStore } from "@/store/useWreckStore";
+import { useShipStore } from "@/store/useShipStore";
+import { useEffect } from "react";
+
+function AppContent() {
+  const { loadWreckData } = useWreckStore();
+  const { loadSavedData } = useShipStore();
+
+  useEffect(() => {
+    loadSavedData();
+    loadWreckData();
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-space-900 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-4">
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<BattlePage />} />
+          <Route path="/upgrade" element={<UpgradePage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/config" element={<ConfigPage />} />
+          <Route path="/archaeology" element={<ArchaeologyPage />} />
+        </Routes>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-space-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <NavBar />
-          <Routes>
-            <Route path="/" element={<BattlePage />} />
-            <Route path="/upgrade" element={<UpgradePage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/config" element={<ConfigPage />} />
-          </Routes>
-        </div>
-      </div>
+      <AppContent />
     </Router>
   );
 }

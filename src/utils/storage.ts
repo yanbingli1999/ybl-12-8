@@ -1,6 +1,7 @@
-import type { GameSaveData, Ship, Upgrade, GameConfig, BattleRecord, GameStats } from '../types';
+import type { GameSaveData, Ship, Upgrade, GameConfig, BattleRecord, GameStats, WreckSaveData, WreckFragment, AssembledRelic } from '../types';
 import { createDefaultShip, createDefaultUpgrades } from '../data/defaultShip';
 import { defaultConfig } from '../data/defaultConfig';
+import { createDefaultWreckSaveData } from './wreckUtils';
 
 const STORAGE_KEY = 'starship_dice_commander_save';
 
@@ -24,6 +25,7 @@ export function createDefaultSaveData(): GameSaveData {
     battleHistory: [],
     stats: { ...defaultStats },
     rewardPoints: 0,
+    wreckData: createDefaultWreckSaveData(),
   };
 }
 
@@ -58,6 +60,12 @@ function validateSaveData(data: GameSaveData): GameSaveData {
     battleHistory: data.battleHistory || [],
     stats: { ...defaults.stats, ...data.stats },
     rewardPoints: typeof data.rewardPoints === 'number' ? data.rewardPoints : 0,
+    wreckData: data.wreckData ? {
+      fragments: data.wreckData.fragments || [],
+      relics: data.wreckData.relics || [],
+      activeRelicIds: data.wreckData.activeRelicIds || [],
+      maxActiveRelics: data.wreckData.maxActiveRelics || 3,
+    } : defaults.wreckData,
   };
 }
 
@@ -144,4 +152,54 @@ export function importSaveData(jsonString: string): boolean {
     console.error('Failed to import save data:', e);
     return false;
   }
+}
+
+// ============ 残骸系统存储函数 ============
+
+export function saveWreckData(wreckData: WreckSaveData): void {
+  const data = loadSaveData();
+  data.wreckData = wreckData;
+  saveSaveData(data);
+}
+
+export function loadWreckData(): WreckSaveData {
+  return loadSaveData().wreckData;
+}
+
+export function addWreckFragments(fragments: WreckFragment[]): void {
+  const data = loadSaveData();
+  data.wreckData.fragments = [...data.wreckData.fragments, ...fragments];
+  saveSaveData(data);
+}
+
+export function removeWreckFragments(fragmentIds: string[]): void {
+  const data = loadSaveData();
+  data.wreckData.fragments = data.wreckData.fragments.filter(f => !fragmentIds.includes(f.id));
+  saveSaveData(data);
+}
+
+export function addRelic(relic: AssembledRelic): void {
+  const data = loadSaveData();
+  data.wreckData.relics.push(relic);
+  saveSaveData(data);
+}
+
+export function removeRelic(relicId: string): void {
+  const data = loadSaveData();
+  data.wreckData.relics = data.wreckData.relics.filter(r => r.id !== relicId);
+  data.wreckData.activeRelicIds = data.wreckData.activeRelicIds.filter(id => id !== relicId);
+  saveSaveData(data);
+}
+
+export function setActiveRelics(activeIds: string[]): void {
+  const data = loadSaveData();
+  const maxActive = data.wreckData.maxActiveRelics;
+  data.wreckData.activeRelicIds = activeIds.slice(0, maxActive);
+  saveSaveData(data);
+}
+
+export function increaseMaxActiveRelics(amount: number = 1): void {
+  const data = loadSaveData();
+  data.wreckData.maxActiveRelics = Math.min(6, data.wreckData.maxActiveRelics + amount);
+  saveSaveData(data);
 }

@@ -1,7 +1,8 @@
 import type { 
   Ship, Enemy, Die, CabinType, DamageResult, BattleLogEntry,
-  GameConfig, AllocationResult, EnemyIntent
+  GameConfig, AllocationResult, EnemyIntent, BattleRuleModifiers
 } from '../types';
+import { DEFAULT_RULE_MODIFIERS } from '../data/wreckData';
 
 export function calculateDamage(
   baseDamage: number,
@@ -70,7 +71,8 @@ export function calculateCabinEffect(
   totalPoints: number,
   ship: Ship,
   enemy: Enemy,
-  config: GameConfig
+  config: GameConfig,
+  modifiers: BattleRuleModifiers = DEFAULT_RULE_MODIFIERS
 ): { 
   effect: string; 
   value: number; 
@@ -85,6 +87,7 @@ export function calculateCabinEffect(
   const isOverheated = totalPoints > config.overheatThreshold;
   const effectivePoints = isOverheated ? 0 : totalPoints;
   const levelMultiplier = 1 + (cabin.level - 1) * 0.2;
+  const engineMultiplier = cabinType === 'engine' && modifiers.engineOvercharge ? 1.5 : 1;
 
   let result: { effect: string; value: number; type: 'damage' | 'heal' | 'shield' | 'effect' };
 
@@ -118,9 +121,9 @@ export function calculateCabinEffect(
       break;
     }
     case 'engine': {
-      const evasionBonus = effectivePoints * config.engineEvasionBonus * levelMultiplier;
+      const evasionBonus = effectivePoints * config.engineEvasionBonus * levelMultiplier * engineMultiplier;
       result = {
-        effect: isOverheated ? '引擎舱过热！无法机动' : `引擎推进，闪避率 +${(evasionBonus * 100).toFixed(0)}%`,
+        effect: isOverheated ? '引擎舱过热！无法机动' : `引擎推进，闪避率 +${(evasionBonus * 100).toFixed(0)}%${modifiers.engineOvercharge && !isOverheated ? ' (超频)' : ''}`,
         value: evasionBonus,
         type: 'effect',
       };
@@ -264,7 +267,8 @@ export function executePlayerActions(
   dice: Die[],
   player: Ship,
   enemy: Enemy,
-  config: GameConfig
+  config: GameConfig,
+  modifiers: BattleRuleModifiers = DEFAULT_RULE_MODIFIERS
 ): {
   logs: BattleLogEntry[];
   newPlayer: Ship;
@@ -284,6 +288,7 @@ export function executePlayerActions(
   const damagedCabins: CabinType[] = [];
   let playerEvasionBonus = 0;
   let enemyEvasionReduction = 0;
+  let firstOverheatConsumed = false;
 
   const totalDicePoints = dice.reduce((sum, d) => sum + d.value, 0);
   const energyCost = Math.floor(totalDicePoints * config.energyCostPerPoint);
@@ -315,8 +320,13 @@ export function executePlayerActions(
 
     const isOverheated = allocation.totalPoints > config.overheatThreshold;
     if (isOverheated) {
-      damagedCabins.push(allocation.cabinType);
-      logs.push(createLog('system', 'effect', `${cabin.name} 过热损坏！需要 ${config.repairCooldown} 回合冷却`, undefined, 1));
+      if (modifiers.firstOverheatSafe && !firstOverheatConsumed) {
+        firstOverheatConsumed = true;
+        logs.push(createLog('system', 'effect', `遗物「温控」激活：${cabin.name} 过热被抑制！`, undefined, 1));
+      } else {
+        damagedCabins.push(allocation.cabinType);
+        logs.push(createLog('system', 'effect', `${cabin.name} 过热损坏！需要 ${config.repairCooldown} 回合冷却`, undefined, 1));
+      }
     }
 
     const effect = calculateCabinEffect(
@@ -324,14 +334,15 @@ export function executePlayerActions(
       allocation.totalPoints * efficiencyPenalty,
       newPlayer,
       newEnemy,
-      config
+      config,
+      modifiers
     );
 
     logs.push(createLog('player', effect.type, effect.effect, effect.value, 1));
 
     switch (allocation.cabinType) {
       case 'weapon': {
-        if (!isOverheated) {
+        if (!isOverheated || (modifiers.firstOverheatSafe && firstOverheatConsumed && allocation.totalPoints > config.overheatThreshold)) {
           const weaponDice = dice.filter(d => d.assignedTo === 'weapon');
           const sixCount = weaponDice.filter(d => d.value === 6).length;
           const bonusCritRate = sixCount * config.critBonusRate;
@@ -346,10 +357,16 @@ export function executePlayerActions(
             effect.value,
             totalCritRate,
             Math.max(0, newEnemy.evasion - enemyEvasionReduction),
-            newEnemy.defense,
+            newEnemy.defense * (1 - modifiers.weaponPiercePercent / 100),
             config,
             guaranteedCrit
           );
+
+          let pierceDamage = 0;
+          if (modifiers.weaponPiercePercent > 0 && !damageResult.isMiss && damageResult.damage > 0) {
+            pierceDamage = Math.floor(effect.value * modifiers.weaponPiercePercent / 100 * (1 - newEnemy.defense));
+            pierceDamage = Math.max(0, pierceDamage);
+          }
 
           if (damageResult.isMiss) {
             logs.push(createLog('enemy', 'miss', '敌方闪避了攻击！', undefined, 1));
@@ -362,6 +379,15 @@ export function executePlayerActions(
             
             if (damageResult.isCrit) {
               logs.push(createLog('player', 'crit', '暴击！', damageResult.damage, 1));
+              if (modifiers.critHealPercent > 0) {
+                const healAmount = Math.floor(shieldAbsorption.damage * modifiers.critHealPercent / 100);
+                if (healAmount > 0) {
+                  const actualHeal = Math.min(healAmount, newPlayer.maxHp - newPlayer.hp);
+                  newPlayer.hp = Math.min(newPlayer.maxHp, newPlayer.hp + healAmount);
+                  totalHealDone += actualHeal;
+                  logs.push(createLog('player', 'heal', `谐振回授！暴击恢复 ${actualHeal} HP`, actualHeal, 1));
+                }
+              }
             }
 
             // #region debug-point H2:crit-result
@@ -369,18 +395,22 @@ export function executePlayerActions(
             // #endregion
 
             newEnemy.shield = shieldAbsorption.remainingShield;
-            newEnemy.hp = Math.max(0, newEnemy.hp - shieldAbsorption.damage);
-            totalDamageDealt += shieldAbsorption.damage;
+            newEnemy.hp = Math.max(0, newEnemy.hp - shieldAbsorption.damage - pierceDamage);
+            totalDamageDealt += shieldAbsorption.damage + pierceDamage;
+
+            if (pierceDamage > 0) {
+              logs.push(createLog('player', 'damage', `等离子穿透！无视护甲造成 ${pierceDamage} 伤害`, pierceDamage, 1));
+            }
             
-            if (shieldAbsorption.damage > 0) {
-              logs.push(createLog('enemy', 'damage', `敌方受到 ${shieldAbsorption.damage} 点伤害`, shieldAbsorption.damage, 1));
+            if (shieldAbsorption.damage > 0 || pierceDamage > 0) {
+              logs.push(createLog('enemy', 'damage', `敌方受到 ${shieldAbsorption.damage + pierceDamage} 点伤害`, shieldAbsorption.damage + pierceDamage, 1));
             }
           }
         }
         break;
       }
       case 'shield': {
-        if (!isOverheated) {
+        if (!isOverheated || (modifiers.firstOverheatSafe && firstOverheatConsumed && allocation.totalPoints > config.overheatThreshold)) {
           const shieldGain = Math.min(effect.value, newPlayer.maxShield - newPlayer.shield);
           newPlayer.shield = Math.min(newPlayer.maxShield, newPlayer.shield + effect.value);
           totalShieldGained += shieldGain;
@@ -388,7 +418,7 @@ export function executePlayerActions(
         break;
       }
       case 'repair': {
-        if (!isOverheated) {
+        if (!isOverheated || (modifiers.firstOverheatSafe && firstOverheatConsumed && allocation.totalPoints > config.overheatThreshold)) {
           const healAmount = Math.min(effect.value, newPlayer.maxHp - newPlayer.hp);
           newPlayer.hp = Math.min(newPlayer.maxHp, newPlayer.hp + effect.value);
           totalHealDone += healAmount;
@@ -403,17 +433,35 @@ export function executePlayerActions(
         break;
       }
       case 'engine': {
-        if (!isOverheated) {
+        if (!isOverheated || (modifiers.firstOverheatSafe && firstOverheatConsumed && allocation.totalPoints > config.overheatThreshold)) {
           playerEvasionBonus += effect.value;
         }
         break;
       }
       case 'scanner': {
-        if (!isOverheated) {
+        if (!isOverheated || (modifiers.firstOverheatSafe && firstOverheatConsumed && allocation.totalPoints > config.overheatThreshold)) {
           enemyEvasionReduction += effect.value;
+          
+          if (modifiers.scanShieldBreak && effect.value > 0) {
+            const shieldBreakAmount = Math.floor(effect.value * 2);
+            const actualBreak = Math.min(newEnemy.shield, shieldBreakAmount);
+            if (actualBreak > 0) {
+              newEnemy.shield = Math.max(0, newEnemy.shield - shieldBreakAmount);
+              logs.push(createLog('player', 'shield', `扫描附带破盾！削减 ${actualBreak} 敌方护盾`, actualBreak, 1));
+            }
+          }
         }
         break;
       }
+    }
+  }
+
+  if (modifiers.shieldReflectPercent > 0 && totalDamageDealt > 0 && newEnemy.hp > 0) {
+    const reflectDamage = Math.floor(totalDamageDealt * modifiers.shieldReflectPercent / 100 * 0.5);
+    if (reflectDamage > 0) {
+      newEnemy.hp = Math.max(0, newEnemy.hp - reflectDamage);
+      totalDamageDealt += reflectDamage;
+      logs.push(createLog('player', 'damage', `反射护盾反弹 ${reflectDamage} 伤害给敌方！`, reflectDamage, 1));
     }
   }
 

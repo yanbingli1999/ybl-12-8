@@ -174,6 +174,7 @@ export interface GameSaveData {
   battleHistory: BattleRecord[];
   stats: GameStats;
   rewardPoints: number;
+  wreckData: WreckSaveData;
 }
 
 export interface DiceFace {
@@ -195,4 +196,83 @@ export interface DamageResult {
   shieldAbsorbed: number;
   isCrit: boolean;
   isMiss: boolean;
+}
+
+// ============ 星舰残骸考古系统 ============
+
+export type WreckFaction = 'Federation' | 'Empire' | 'Pirate' | 'Ancient' | 'Unknown';
+
+export type WreckEra = 'GoldenAge' | 'Expansion' | 'War' | 'Collapse' | 'Prehistoric';
+
+export type WreckPart = 'Hull' | 'Engine' | 'Weapon' | 'Shield' | 'Core' | 'Scanner' | 'Comm' | 'LifeSupport';
+
+export type AnomalyTraitCategory = 'buff' | 'debuff' | 'neutral' | 'unique';
+
+export interface AnomalyTrait {
+  id: string;
+  name: string;
+  category: AnomalyTraitCategory;
+  description: string;
+  conflictTags: string[];
+  powerLevel: number;
+}
+
+export interface WreckFragment {
+  id: string;
+  faction: WreckFaction;
+  era: WreckEra;
+  part: WreckPart;
+  corrosion: number;
+  traits: AnomalyTrait[];
+  discoveredAt: number;
+  fromDifficulty: number;
+}
+
+export type RelicRuleModifierId = 
+  | 'first_overheat_safe'
+  | 'scan_shield_break'
+  | 'enemy_repair_half'
+  | 'turn_start_extra_energy'
+  | 'crit_heal'
+  | 'shield_damage_reflect'
+  | 'engine_overcharge'
+  | 'weapon_pierce';
+
+export interface RelicRuleModifier {
+  id: RelicRuleModifierId;
+  name: string;
+  description: string;
+  requiredTags: string[];
+  requiredFaction?: WreckFaction;
+  requiredEra?: WreckEra;
+  requiredParts?: WreckPart[];
+}
+
+export interface AssembledRelic {
+  id: string;
+  name: string;
+  fragments: WreckFragment[];
+  ruleModifier: RelicRuleModifierId;
+  totalCorrosion: number;
+  corrosionPenalty: number;
+  power: number;
+  assembledAt: number;
+}
+
+export interface BattleRuleModifiers {
+  firstOverheatSafe: boolean;
+  scanShieldBreak: boolean;
+  enemyRepairHalf: boolean;
+  turnStartExtraEnergy: number;
+  critHealPercent: number;
+  shieldReflectPercent: number;
+  engineOvercharge: boolean;
+  weaponPiercePercent: number;
+}
+
+export interface WreckSaveData {
+  fragments: WreckFragment[];
+  relics: AssembledRelic[];
+  activeRelicIds: string[];
+  maxActiveRelics: number;
 }

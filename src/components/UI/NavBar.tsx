@@ -1,15 +1,18 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Swords, Wrench, History, Settings, Coins } from 'lucide-react';
+import { Swords, Wrench, History, Settings, Coins, FlaskConical } from 'lucide-react';
 import { useShipStore } from '../../store/useShipStore';
+import { useWreckStore } from '../../store/useWreckStore';
 
 export const NavBar: React.FC = () => {
   const location = useLocation();
   const { rewardPoints, stats } = useShipStore();
+  const { wreckData, lastFragments } = useWreckStore();
 
   const navItems = [
     { path: '/', icon: Swords, label: '战斗' },
     { path: '/upgrade', icon: Wrench, label: '改装' },
+    { path: '/archaeology', icon: FlaskConical, label: '考古', badge: lastFragments.length > 0 ? lastFragments.length : undefined },
     { path: '/history', icon: History, label: '战报' },
     { path: '/config', icon: Settings, label: '设置' },
   ];
@@ -30,7 +33,7 @@ export const NavBar: React.FC = () => {
               key={item.path}
               to={item.path}
               className={({ isActive }) => `
-                flex items-center gap-1 sm:gap-2 px-3 py-2 rounded-lg
+                relative flex items-center gap-1 sm:gap-2 px-3 py-2 rounded-lg
                 transition-all duration-200
                 ${isActive 
                   ? 'bg-neon-blue/20 text-neon-blue border border-neon-blue/50' 
@@ -39,6 +42,11 @@ export const NavBar: React.FC = () => {
             >
               <item.icon className="w-5 h-5" />
               <span className="text-sm font-medium hidden sm:inline">{item.label}</span>
+              {item.badge !== undefined && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-neon-purple text-white rounded-full animate-pulse shadow-lg shadow-neon-purple/50">
+                  {item.badge}
+                </span>
+              )}
             </NavLink>
           ))}
         </div>

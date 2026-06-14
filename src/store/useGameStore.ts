@@ -15,6 +15,7 @@ import {
 } from '../utils/battle';
 import { addBattleRecord, loadBattleHistory, updateStats } from '../utils/storage';
 import { unassignAllDice } from '../utils/dice';
+import { useWreckStore } from './useWreckStore';
 
 interface GameState {
   battleState: BattleState | null;
@@ -104,6 +105,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const diceStore = useDiceStore.getState();
     const config = useConfigStore.getState().config;
     const shipStore = useShipStore.getState();
+    const wreckModifiers = useWreckStore.getState().activeModifiers;
     
     const { dice } = diceStore;
     const wasDefending = battleState.enemy.intent.type === 'defend';
@@ -118,7 +120,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       dice,
       battleState.player,
       preparedEnemy,
-      config
+      config,
+      wreckModifiers
     );
     
     let newState: BattleState = {
@@ -137,7 +140,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     newState.phase = 'enemy';
     
     if (newState.enemy.intent.type === 'repair') {
-      const healAmount = newState.enemy.intent.value;
+      const baseHeal = newState.enemy.intent.value;
+      const healAmount = wreckModifiers.enemyRepairHalf ? Math.floor(baseHeal * 0.5) : baseHeal;
+      if (wreckModifiers.enemyRepairHalf) {
+        newState.logs.push({
+          id: `log_${Date.now()}_repair_half`,
+          turn: battleState.turn,
+          type: 'effect',
+          source: 'player',
+          message: `遗物「修复抑制」激活：敌方修复效果减半（${baseHeal} → ${healAmount}）`,
+          timestamp: Date.now(),
+        });
+      }
       newState.enemy = {
         ...newState.enemy,
         hp: Math.min(newState.enemy.maxHp, newState.enemy.hp + healAmount),
@@ -267,10 +281,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     newState.turn += 1;
     newState.phase = 'player';
     
+    const baseEnergy = Math.floor(newState.player.maxEnergy * 0.5);
+    const extraEnergy = wreckModifiers.turnStartExtraEnergy;
+    const totalEnergyGain = baseEnergy + extraEnergy;
+    
     newState.player = {
       ...newState.player,
-      energy: Math.min(newState.player.maxEnergy, newState.player.energy + Math.floor(newState.player.maxEnergy * 0.5)),
+      energy: Math.min(newState.player.maxEnergy, newState.player.energy + totalEnergyGain),
     };
+    
+    if (extraEnergy > 0) {
+      newState.logs.push({
+        id: `log_${Date.now()}_extra_energy`,
+        turn: battleState.turn,
+        type: 'effect',
+        source: 'player',
+        message: `遗物「暗能核心」激活：回合开始额外 +${extraEnergy} 能量`,
+        timestamp: Date.now(),
+      });
+    }
     
     const replayAction: ReplayAction = {
       turn: battleState.turn,
@@ -352,6 +381,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       newStats.victories += 1;
       newStats.currentStreak += 1;
       newStats.longestStreak = Math.max(newStats.longestStreak, newStats.currentStreak);
+      useWreckStore.getState().addVictoryFragments(get().currentDifficulty, battleState.turn);
     } else {
       newStats.defeats += 1;
       newStats.currentStreak = 0;
