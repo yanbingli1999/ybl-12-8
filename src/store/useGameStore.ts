@@ -121,7 +121,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       battleState.player,
       preparedEnemy,
       config,
-      wreckModifiers
+      wreckModifiers,
+      battleState.firstOverheatUsed || false
     );
     
     let newState: BattleState = {
@@ -129,6 +130,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       player: playerResult.newPlayer,
       enemy: playerResult.newEnemy,
       logs: [...battleState.logs, ...playerResult.logs.map(l => ({ ...l, turn: battleState.turn }))],
+      firstOverheatUsed: playerResult.firstOverheatUsed,
     };
     
     const result = checkBattleEnd(newState.player, newState.enemy);
@@ -211,11 +213,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     if (enemyResult.effect === 'heal_hp') {
-      const healAmount = Math.floor(newState.enemy.maxHp * 0.15);
+      const baseHeal = Math.floor(newState.enemy.maxHp * 0.15);
+      const healAmount = wreckModifiers.enemyRepairHalf ? Math.floor(baseHeal * 0.5) : baseHeal;
       newState.enemy = {
         ...newState.enemy,
         hp: Math.min(newState.enemy.maxHp, newState.enemy.hp + healAmount),
       };
+      if (wreckModifiers.enemyRepairHalf) {
+        enemyResult.logs.push({
+          id: `log_${Date.now()}_heal_half`,
+          turn: battleState.turn,
+          type: 'effect',
+          source: 'player',
+          message: `遗物「修复抑制」激活：敌方船体再生减半（${baseHeal} → ${healAmount}）`,
+          timestamp: Date.now(),
+        });
+      }
       enemyResult.logs.push({
         id: `log_${Date.now()}_heal`,
         turn: battleState.turn,
@@ -228,11 +241,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     if (enemyResult.effect === 'heal_shield') {
-      const shieldAmount = Math.floor(newState.enemy.maxShield * 0.3);
+      const baseShield = Math.floor(newState.enemy.maxShield * 0.3);
+      const shieldAmount = wreckModifiers.enemyRepairHalf ? Math.floor(baseShield * 0.5) : baseShield;
       newState.enemy = {
         ...newState.enemy,
         shield: Math.min(newState.enemy.maxShield, newState.enemy.shield + shieldAmount),
       };
+      if (wreckModifiers.enemyRepairHalf) {
+        enemyResult.logs.push({
+          id: `log_${Date.now()}_shield_half`,
+          turn: battleState.turn,
+          type: 'effect',
+          source: 'player',
+          message: `遗物「修复抑制」激活：敌方护盾再生减半（${baseShield} → ${shieldAmount}）`,
+          timestamp: Date.now(),
+        });
+      }
       enemyResult.logs.push({
         id: `log_${Date.now()}_shield`,
         turn: battleState.turn,

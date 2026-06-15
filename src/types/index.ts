@@ -99,6 +99,7 @@ export interface BattleState {
   startTime: number;
   endTime?: number;
   rewardPoints: number;
+  firstOverheatUsed?: boolean;
 }
 
 export interface GameConfig {

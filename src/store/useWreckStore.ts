@@ -10,6 +10,7 @@ interface WreckState {
   wreckData: WreckSaveData;
   activeModifiers: BattleRuleModifiers;
   lastFragments: WreckFragment[];
+  activeSlotsFullWarning: string | null;
   
   loadWreckData: () => void;
   addFragments: (fragments: WreckFragment[]) => void;
@@ -17,10 +18,11 @@ interface WreckState {
   deleteFragment: (fragmentId: string) => void;
   assembleRelicFromFragments: (fragmentIds: string[], modifierId: RelicRuleModifierId) => AssembledRelic | null;
   disassembleRelic: (relicId: string) => void;
-  toggleActiveRelic: (relicId: string) => void;
+  toggleActiveRelic: (relicId: string, forceReplace?: boolean) => { success: boolean; slotWasFull: boolean; replacedId?: string };
   setMaxActiveRelics: (max: number) => void;
   computeModifiers: () => void;
   clearLastFragments: () => void;
+  clearSlotWarning: () => void;
   resetWreckData: () => void;
 }
 
@@ -37,6 +39,11 @@ export const useWreckStore = create<WreckState>((set, get) => ({
     weaponPiercePercent: 0,
   },
   lastFragments: [],
+  activeSlotsFullWarning: null,
+
+  clearSlotWarning: () => {
+    set({ activeSlotsFullWarning: null });
+  },
 
   loadWreckData: () => {
     const data = loadWreckData();
@@ -119,29 +126,58 @@ export const useWreckStore = create<WreckState>((set, get) => ({
     get().computeModifiers();
   },
 
-  toggleActiveRelic: (relicId) => {
-    const { activeRelicIds, maxActiveRelics } = get().wreckData;
-    let newActiveIds: string[];
-
+  toggleActiveRelic: (relicId, forceReplace = false) => {
+    const { activeRelicIds, maxActiveRelics, relics } = get().wreckData;
+    
     if (activeRelicIds.includes(relicId)) {
-      newActiveIds = activeRelicIds.filter(id => id !== relicId);
-    } else {
-      if (activeRelicIds.length >= maxActiveRelics) {
-        newActiveIds = [...activeRelicIds.slice(1), relicId];
-      } else {
-        newActiveIds = [...activeRelicIds, relicId];
-      }
+      const newActiveIds = activeRelicIds.filter(id => id !== relicId);
+      setActiveRelics(newActiveIds);
+      set({
+        wreckData: {
+          ...get().wreckData,
+          activeRelicIds: newActiveIds,
+        },
+        activeSlotsFullWarning: null,
+      });
+      get().computeModifiers();
+      return { success: true, slotWasFull: false };
     }
-
+    
+    if (activeRelicIds.length >= maxActiveRelics) {
+      if (!forceReplace) {
+        const oldestId = activeRelicIds[0];
+        const oldestRelic = relics.find(r => r.id === oldestId);
+        const newRelic = relics.find(r => r.id === relicId);
+        const warningMsg = `⚠️ 激活槽已满（${activeRelicIds.length}/${maxActiveRelics}）！\n\n若激活【${newRelic?.name || relicId}】，\n将自动替换最早激活的【${oldestRelic?.name || oldestId}】。\n\n是否确认替换？`;
+        set({ activeSlotsFullWarning: warningMsg });
+        return { success: false, slotWasFull: true, replacedId: oldestId };
+      }
+      
+      const oldestId = activeRelicIds[0];
+      const newActiveIds = [...activeRelicIds.slice(1), relicId];
+      setActiveRelics(newActiveIds);
+      set({
+        wreckData: {
+          ...get().wreckData,
+          activeRelicIds: newActiveIds,
+        },
+        activeSlotsFullWarning: null,
+      });
+      get().computeModifiers();
+      return { success: true, slotWasFull: true, replacedId: oldestId };
+    }
+    
+    const newActiveIds = [...activeRelicIds, relicId];
     setActiveRelics(newActiveIds);
     set({
       wreckData: {
         ...get().wreckData,
         activeRelicIds: newActiveIds,
       },
+      activeSlotsFullWarning: null,
     });
-    
     get().computeModifiers();
+    return { success: true, slotWasFull: false };
   },
 
   setMaxActiveRelics: (max) => {

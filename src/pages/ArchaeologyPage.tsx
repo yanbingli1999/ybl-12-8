@@ -426,12 +426,14 @@ const AssemblyResultPanel: React.FC<{
 export const ArchaeologyPage: React.FC = () => {
   const { 
     wreckData, 
+    activeSlotsFullWarning,
     loadWreckData, 
     deleteFragment, 
     assembleRelicFromFragments,
     disassembleRelic,
     toggleActiveRelic,
     clearLastFragments,
+    clearSlotWarning,
   } = useWreckStore();
   
   const [activeTab, setActiveTab] = useState<TabType>('fragments');
@@ -444,6 +446,8 @@ export const ArchaeologyPage: React.FC = () => {
     show: boolean;
     relic: AssembledRelic | null;
   }>({ show: false, relic: null });
+  const [pendingRelicId, setPendingRelicId] = useState<string | null>(null);
+  const [showSlotFullModal, setShowSlotFullModal] = useState(false);
 
   React.useEffect(() => {
     loadWreckData();
@@ -460,6 +464,34 @@ export const ArchaeologyPage: React.FC = () => {
       setShowNewFragmentsModal(true);
     }
   }, [useWreckStore.getState().lastFragments.length]);
+
+  React.useEffect(() => {
+    if (activeSlotsFullWarning && pendingRelicId) {
+      setShowSlotFullModal(true);
+    }
+  }, [activeSlotsFullWarning, pendingRelicId]);
+
+  const handleToggleActive = (relicId: string) => {
+    const result = toggleActiveRelic(relicId);
+    if (!result.success && result.slotWasFull) {
+      setPendingRelicId(relicId);
+    }
+  };
+
+  const handleConfirmReplace = () => {
+    if (pendingRelicId) {
+      toggleActiveRelic(pendingRelicId, true);
+    }
+    setShowSlotFullModal(false);
+    setPendingRelicId(null);
+    clearSlotWarning();
+  };
+
+  const handleCancelReplace = () => {
+    setShowSlotFullModal(false);
+    setPendingRelicId(null);
+    clearSlotWarning();
+  };
 
   const filteredFragments = useMemo(() => {
     return wreckData.fragments.filter(f => {
@@ -738,7 +770,7 @@ export const ArchaeologyPage: React.FC = () => {
                     key={relic.id}
                     relic={relic}
                     isActive={wreckData.activeRelicIds.includes(relic.id)}
-                    onToggle={() => toggleActiveRelic(relic.id)}
+                    onToggle={() => handleToggleActive(relic.id)}
                     onDisassemble={() => disassembleRelic(relic.id)}
                   />
                 ))}
@@ -861,13 +893,42 @@ export const ArchaeologyPage: React.FC = () => {
               </button>
               <button
                 onClick={() => {
-                  toggleActiveRelic(assembleResultModal.relic!.id);
-                  setAssembleResultModal({ show: false, relic: null });
+                  const relicId = assembleResultModal.relic!.id;
+                  const result = toggleActiveRelic(relicId);
+                  if (!result.success && result.slotWasFull) {
+                    setPendingRelicId(relicId);
+                  } else {
+                    setAssembleResultModal({ show: false, relic: null });
+                  }
                   setActiveTab('relics');
                 }}
                 className="flex-1 btn-primary"
               >
                 立即激活
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={showSlotFullModal} onClose={handleCancelReplace} title="⚠️ 激活槽已满">
+        {showSlotFullModal && activeSlotsFullWarning && (
+          <div>
+            <div className="whitespace-pre-line bg-space-700/50 rounded-lg p-4 mb-6 text-yellow-300 border border-yellow-500/30">
+              {activeSlotsFullWarning}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelReplace}
+                className="flex-1 px-4 py-3 bg-space-700 border border-space-600 rounded-lg text-white hover:bg-space-600 transition-colors"
+              >
+                取消激活
+              </button>
+              <button
+                onClick={handleConfirmReplace}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold rounded-lg hover:from-orange-400 hover:to-red-400 transition-all shadow-lg shadow-orange-500/30"
+              >
+                确认替换
               </button>
             </div>
           </div>

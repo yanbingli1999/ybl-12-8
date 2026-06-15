@@ -268,7 +268,8 @@ export function executePlayerActions(
   player: Ship,
   enemy: Enemy,
   config: GameConfig,
-  modifiers: BattleRuleModifiers = DEFAULT_RULE_MODIFIERS
+  modifiers: BattleRuleModifiers = DEFAULT_RULE_MODIFIERS,
+  firstOverheatAlreadyUsed: boolean = false
 ): {
   logs: BattleLogEntry[];
   newPlayer: Ship;
@@ -278,6 +279,7 @@ export function executePlayerActions(
   totalShieldGained: number;
   damagedCabins: CabinType[];
   energyUsed: number;
+  firstOverheatUsed: boolean;
 } {
   const logs: BattleLogEntry[] = [];
   let newPlayer = { ...player };
@@ -288,7 +290,7 @@ export function executePlayerActions(
   const damagedCabins: CabinType[] = [];
   let playerEvasionBonus = 0;
   let enemyEvasionReduction = 0;
-  let firstOverheatConsumed = false;
+  let firstOverheatConsumed = firstOverheatAlreadyUsed;
 
   const totalDicePoints = dice.reduce((sum, d) => sum + d.value, 0);
   const energyCost = Math.floor(totalDicePoints * config.energyCostPerPoint);
@@ -444,10 +446,23 @@ export function executePlayerActions(
           
           if (modifiers.scanShieldBreak && effect.value > 0) {
             const shieldBreakAmount = Math.floor(effect.value * 2);
+            const shieldBefore = newEnemy.shield;
             const actualBreak = Math.min(newEnemy.shield, shieldBreakAmount);
-            if (actualBreak > 0) {
-              newEnemy.shield = Math.max(0, newEnemy.shield - shieldBreakAmount);
-              logs.push(createLog('player', 'shield', `扫描附带破盾！削减 ${actualBreak} 敌方护盾`, actualBreak, 1));
+            newEnemy.shield = Math.max(0, newEnemy.shield - shieldBreakAmount);
+            const overBreak = shieldBreakAmount - actualBreak;
+            
+            if (shieldBreakAmount > 0) {
+              logs.push(createLog('player', 'shield', 
+                `🔍 扫描共振！破盾冲击：削减 ${actualBreak} 敌方护盾${shieldBefore === 0 ? '（无护盾可削）' : shieldBreakAmount > actualBreak ? `，溢出伤害 ${overBreak} 直接命中船体` : ''}`, 
+                actualBreak, 1));
+              
+              if (overBreak > 0 && actualBreak === shieldBefore) {
+                newEnemy.hp = Math.max(0, newEnemy.hp - Math.floor(overBreak * 0.5));
+                totalDamageDealt += Math.floor(overBreak * 0.5);
+                logs.push(createLog('player', 'damage', 
+                  `⚡ 破盾溢出！穿透护盾造成 ${Math.floor(overBreak * 0.5)} 额外船体伤害`, 
+                  Math.floor(overBreak * 0.5), 1));
+              }
             }
           }
         }
@@ -493,6 +508,7 @@ export function executePlayerActions(
     totalShieldGained,
     damagedCabins,
     energyUsed: actualEnergyCost,
+    firstOverheatUsed: firstOverheatConsumed,
   };
 }
 
